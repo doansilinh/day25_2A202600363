@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 
 from reliability_lab.cache import ResponseCache, SharedRedisCache
 from reliability_lab.circuit_breaker import CircuitBreaker, CircuitOpenError
@@ -32,16 +33,14 @@ class ReliabilityGateway:
         self.cache = cache
 
     def complete(self, prompt: str) -> GatewayResponse:
-        """Return a reliable response or a static fallback.
+        """Return a reliable response or a static fallback."""
+        started = time.perf_counter()
 
-        TODO(student): Improve route reasons, cache safety checks, and error handling.
-        TODO(student): Add cost budget check — if cumulative cost exceeds a threshold,
-        skip expensive providers and route to cache or cheaper fallback.
-        """
         if self.cache is not None:
             cached, score = self.cache.get(prompt)
             if cached is not None:
-                return GatewayResponse(cached, f"cache_hit:{score:.2f}", None, True, 0.0, 0.0)
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                return GatewayResponse(cached, f"cache_hit:{score:.2f}", None, True, elapsed_ms, 0.0)
 
         last_error: str | None = None
         for provider in self.providers:
@@ -50,13 +49,16 @@ class ReliabilityGateway:
                 response: ProviderResponse = breaker.call(provider.complete, prompt)
                 if self.cache is not None:
                     self.cache.set(prompt, response.text, {"provider": provider.name})
-                route = "primary" if provider == self.providers[0] else "fallback"
+                route = (
+                    f"primary:{provider.name}" if provider == self.providers[0] else f"fallback:{provider.name}"
+                )
+                elapsed_ms = (time.perf_counter() - started) * 1000
                 return GatewayResponse(
                     text=response.text,
                     route=route,
                     provider=provider.name,
                     cache_hit=False,
-                    latency_ms=response.latency_ms,
+                    latency_ms=elapsed_ms,
                     estimated_cost=response.estimated_cost,
                 )
             except (ProviderError, CircuitOpenError) as exc:
@@ -68,7 +70,7 @@ class ReliabilityGateway:
             route="static_fallback",
             provider=None,
             cache_hit=False,
-            latency_ms=0.0,
+            latency_ms=(time.perf_counter() - started) * 1000,
             estimated_cost=0.0,
             error=last_error,
         )

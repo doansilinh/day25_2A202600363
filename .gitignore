@@ -6,3 +6,6 @@ __pycache__/
 *.pyc
 reports/metrics.json
 reports/final_report.md
+!reports/metrics.json
+!reports/metrics_no_cache.json
+!reports/final_report.md
